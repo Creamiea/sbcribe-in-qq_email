@@ -3,6 +3,13 @@ import smtplib
 from email.mime.text import MIMEText
 from email.header import Header
 import datetime
+import requests
+import smtplib
+from email.mime.text import MIMEText
+from email.header import Header
+from email.utils import formataddr  # <--- 新增这一行！
+import datetime
+import os
 import os  # 新增：用于读取环境变量
 
 # ================= 配置区域 =================
@@ -55,30 +62,43 @@ def format_email_content(repos):
     return html_content
 
 def send_email():
+    # 1. 检查环境变量
     if not SENDER_EMAIL or not AUTH_CODE:
         print("错误：未检测到环境变量，请在 GitHub Secrets 中配置！")
         return
 
+    # 2. 获取数据
     repos = get_weekly_trending_repos()
     if not repos:
         print("未获取到项目，跳过。")
         return
 
+    # 3. 生成邮件内容
     mail_content = format_email_content(repos)
+    
+    # 4. 构建邮件对象 (修正部分)
     message = MIMEText(mail_content, 'html', 'utf-8')
-    message['From'] = Header("GitHub 助手", 'utf-8')
-    message['To'] = Header("开发者", 'utf-8')
-    message['Subject'] = Header(f"GitHub 本周热门 ({datetime.datetime.now().strftime('%Y-%m-%d')})", 'utf-8')
+    
+    # --- 核心修正开始 ---
+    # 使用 formataddr 生成符合 RFC 标准的格式： "昵称 <邮箱地址>"
+    # 这样 QQ 邮箱服务器才能识别出发件人是谁，从而放行
+    message['From'] = formataddr(["GitHub 助手", SENDER_EMAIL])
+    message['To'] = formataddr(["开发者", RECEIVER_EMAIL])
+    # --- 核心修正结束 ---
+    
+    subject = f"GitHub 本周热门 ({datetime.datetime.now().strftime('%Y-%m-%d')})"
+    message['Subject'] = Header(subject, 'utf-8')
 
+    # 5. 发送邮件
     try:
+        # QQ 邮箱使用 SSL 加密，端口 465
         smtp_obj = smtplib.SMTP_SSL('smtp.qq.com', 465)
         smtp_obj.login(SENDER_EMAIL, AUTH_CODE)
         smtp_obj.sendmail(SENDER_EMAIL, RECEIVER_EMAIL, message.as_string())
         smtp_obj.quit()
-        print("邮件发送成功！")
+        print(f"[{datetime.datetime.now()}] 邮件发送成功！")
     except Exception as e:
         print(f"发送失败: {e}")
-
 if __name__ == "__main__":
     # 直接运行发送逻辑，不需要 schedule 循环
     send_email()
